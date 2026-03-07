@@ -1,0 +1,24 @@
+name: Sentinel Security CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build the Docker image
+        run: docker build -t sentinel-app:${{ github.sha }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'sentinel-app:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1' # This fails the build if vulnerabilities are found
+          severity: 'CRITICAL,HIGH'

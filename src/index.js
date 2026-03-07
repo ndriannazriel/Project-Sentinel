@@ -13,6 +13,11 @@ app.use(express.json());     // Layer 2: Secure JSON parsing
 
 // --- ROUTES ---
 
+// Main Route: Default endpoint
+app.get('/', (req, res) => {
+  res.send('Welcome to Project Sentinel Core. Explore /health or /tasks.');
+});
+
 // Health Check: Essential for Kubernetes monitoring in Phase 5
 app.get('/health', (req, res) => {
   res.status(200).json({ 
