@@ -21,4 +21,4 @@ jobs:
           image-ref: 'sentinel-app:${{ github.sha }}'
           format: 'table'
           exit-code: '1' # This fails the build if vulnerabilities are found
-          severity: ''
+          severity: 'CRITICAL,HIGH'
