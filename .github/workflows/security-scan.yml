@@ -22,3 +22,9 @@ jobs:
           format: 'table'
           exit-code: '0' # This fails the build if vulnerabilities are found
           severity: 'CRITICAL,HIGH'
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
