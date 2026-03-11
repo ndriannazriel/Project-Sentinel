@@ -1,13 +1,17 @@
 # Stage 1: Build (The "Kitchen")
-FROM node:18-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
 
 # Stage 2: Production (The "Dining Room")
-FROM node:18-alpine
+FROM node:22-alpine
 WORKDIR /app
+
+# Upgrade system packages to fix zlib and completely remove npm (which we don't need in production anyway) to eliminate all node-pkg vulnerabilities
+RUN apk upgrade --no-cache && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 
 # Security: Create a non-root user so the app doesn't run with admin privileges
 RUN addgroup -S sentinel && adduser -S sentinel -G sentinel
