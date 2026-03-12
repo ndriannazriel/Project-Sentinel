@@ -56,5 +56,5 @@ jobs:
         with:
           context: .
           push: true
-          # Replaces 'latest' with a unique version based on the commit ID
+          # Replaces 'latest' with a unique version based on the commit ID.
           tags: ${{ secrets.DOCKER_USERNAME }}/sentinel-app:latest, ${{ secrets.DOCKER_USERNAME }}/sentinel-app:${{ github.sha }}
