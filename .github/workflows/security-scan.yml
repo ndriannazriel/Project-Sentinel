@@ -71,17 +71,20 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # 1. Pull the new image from Docker Hub using the unique commit SHA
+            # 1. Create a private Docker network
+            sudo docker network create sentinel-net || true
+
+            # 2. Pull the new image from Docker Hub
             sudo docker pull ${{ secrets.DOCKER_USERNAME }}/sentinel-app:${{ github.sha }}
             
-            # 2. Stop and remove the old container if it exists
-            sudo docker stop sentinel-container || true
-            sudo docker rm sentinel-container || true
+            # 3. Stop and remove the old containers
+            sudo docker stop sentinel-container nginx grafana prometheus node-exporter || true
+            sudo docker rm sentinel-container nginx grafana prometheus node-exporter || true
             
-            # 3. Run the new container, mapped to port 80 (Standard Web Port)
-            sudo docker run -d --name sentinel-container -p 80:3000 --restart unless-stopped ${{ secrets.DOCKER_USERNAME }}/sentinel-app:${{ github.sha }}
+            # 4. Run the App container (NO PORT EXPOSED, securely on sentinel-net)
+            sudo docker run -d --name sentinel-container --network sentinel-net --restart unless-stopped ${{ secrets.DOCKER_USERNAME }}/sentinel-app:${{ github.sha }}
 
-            # 4. Clean up old dangling Docker images to save disk space
+            # 5. Clean up old dangling Docker images
             sudo docker image prune -f
 
             # ---- PHASE 2: MONITORING (SOC Analyst Step) ----
@@ -93,23 +96,49 @@ jobs:
             scrape_configs:
               - job_name: "node_exporter"
                 static_configs:
-                  - targets: ["localhost:9100"]
+                  - targets: ["172.17.0.1:9100"] # 172.17.0.1 reaches the host machine
               - job_name: "prometheus"
                 static_configs:
                   - targets: ["localhost:9090"]
             EOF'
 
-            # B. Deploy Node Exporter (Scrapes CPU/RAM from EC2 instance)
-            sudo docker stop node-exporter || true
-            sudo docker rm node-exporter || true
+            # B. Deploy Node Exporter (Must be on host network)
             sudo docker run -d --name node-exporter --net="host" --pid="host" -v "/:/host:ro,rslave" --restart unless-stopped prom/node-exporter:latest --path.rootfs=/host
 
-            # C. Deploy Prometheus (Database that stores the metrics)
-            sudo docker stop prometheus || true
-            sudo docker rm prometheus || true
-            sudo docker run -d --name prometheus -p 9090:9090 --net="host" -v /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml --restart unless-stopped prom/prometheus:latest
+            # C. Deploy Prometheus (Securely on sentinel-net)
+            sudo docker run -d --name prometheus --network sentinel-net -p 9090:9090 -v /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml --restart unless-stopped prom/prometheus:latest
 
-            # D. Deploy Grafana (The Visual SOC Dashboard)
-            sudo docker stop grafana || true
-            sudo docker rm grafana || true
-            sudo docker run -d --name grafana -p 3000:3000 -e "GF_SECURITY_ADMIN_PASSWORD=admin" --restart unless-stopped grafana/grafana:latest
+            # D. Deploy Grafana (Securely on sentinel-net)
+            sudo docker run -d --name grafana --network sentinel-net -e "GF_SECURITY_ADMIN_PASSWORD=admin" --restart unless-stopped grafana/grafana:latest
+
+            # ---- PHASE 3: REVERSE PROXY (The Nginx Traffic Cop) ----
+            # Creating the Nginx routing rules
+            sudo mkdir -p /etc/nginx
+            sudo bash -c 'cat <<EOF > /etc/nginx/nginx.conf
+            events {}
+            http {
+                server {
+                    listen 80;
+                    server_name project-sentienl.azrieln.my; # <--- CHANGE THIS later to your actual domain
+
+                    location / {
+                        proxy_pass http://sentinel-container:3000; 
+                        proxy_set_header Host \$host;
+                        proxy_set_header X-Real-IP \$remote_addr;
+                    }
+                }
+                server {
+                    listen 80;
+                    server_name grafana-soc.azrieln.my; # <--- CHANGE THIS later to your actual domain
+
+                    location / {
+                        proxy_pass http://grafana:3000;
+                        proxy_set_header Host \$host;
+                        proxy_set_header X-Real-IP \$remote_addr;
+                    }
+                }
+            }
+            EOF'
+
+            # Start Nginx (The only container exposing Port 80 to the world)
+            sudo docker run -d --name nginx --network sentinel-net -p 80:80 -v /etc/nginx/nginx.conf:/etc/nginx/nginx.conf:ro --restart unless-stopped nginx:latest
