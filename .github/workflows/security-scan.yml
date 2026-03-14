@@ -58,3 +58,28 @@ jobs:
           push: true
           # Replaces 'latest' with a unique version based on the commit ID.
           tags: ${{ secrets.DOCKER_USERNAME }}/sentinel-app:latest, ${{ secrets.DOCKER_USERNAME }}/sentinel-app:${{ github.sha }}
+
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+    needs: push-to-registry # Only deploy after the image successfully pushes to Docker Hub
+    steps:
+      - name: SSH into EC2, Pull Image, and Restart App
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # 1. Pull the new image from Docker Hub using the unique commit SHA
+            sudo docker pull ${{ secrets.DOCKER_USERNAME }}/sentinel-app:${{ github.sha }}
+            
+            # 2. Stop and remove the old container if it exists
+            sudo docker stop sentinel-container || true
+            sudo docker rm sentinel-container || true
+            
+            # 3. Run the new container, mapped to port 80 (Standard Web Port)
+            sudo docker run -d --name sentinel-container -p 80:3000 --restart unless-stopped ${{ secrets.DOCKER_USERNAME }}/sentinel-app:${{ github.sha }}
+
+            # 4. Clean up old dangling Docker images to save disk space
+            sudo docker image prune -f
