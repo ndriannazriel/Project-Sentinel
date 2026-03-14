@@ -83,3 +83,33 @@ jobs:
 
             # 4. Clean up old dangling Docker images to save disk space
             sudo docker image prune -f
+
+            # ---- PHASE 2: MONITORING (SOC Analyst Step) ----
+            # A. Create Prometheus Configuration File
+            sudo mkdir -p /etc/prometheus
+            sudo bash -c 'cat <<EOF > /etc/prometheus/prometheus.yml
+            global:
+              scrape_interval: 15s
+            scrape_configs:
+              - job_name: "node_exporter"
+                static_configs:
+                  - targets: ["localhost:9100"]
+              - job_name: "prometheus"
+                static_configs:
+                  - targets: ["localhost:9090"]
+            EOF'
+
+            # B. Deploy Node Exporter (Scrapes CPU/RAM from EC2 instance)
+            sudo docker stop node-exporter || true
+            sudo docker rm node-exporter || true
+            sudo docker run -d --name node-exporter --net="host" --pid="host" -v "/:/host:ro,rslave" --restart unless-stopped prom/node-exporter:latest --path.rootfs=/host
+
+            # C. Deploy Prometheus (Database that stores the metrics)
+            sudo docker stop prometheus || true
+            sudo docker rm prometheus || true
+            sudo docker run -d --name prometheus -p 9090:9090 --net="host" -v /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml --restart unless-stopped prom/prometheus:latest
+
+            # D. Deploy Grafana (The Visual SOC Dashboard)
+            sudo docker stop grafana || true
+            sudo docker rm grafana || true
+            sudo docker run -d --name grafana -p 3000:3000 -e "GF_SECURITY_ADMIN_PASSWORD=admin" --restart unless-stopped grafana/grafana:latest
